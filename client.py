@@ -40,6 +40,7 @@ class MessengerClient:
         # Данные
         self.users = []
         self.messages_cache = {}  # username: [messages]
+        self.sent_messages_cache = {}  # (receiver, timestamp): plaintext - кэш своих сообщений
 
     def connect_to_server(self) -> bool:
         """Подключение к серверу"""
@@ -82,8 +83,8 @@ class MessengerClient:
         response = self.send_request(data)
         if response['success']:
             self.username = username
-            # Запуск потока для прослушивания уведомлений
-            threading.Thread(target=self.listen_for_notifications, daemon=True).start()
+            # ОТКЛЮЧЕНО: Поток конфликтует с send_request при использовании одного сокета
+            # threading.Thread(target=self.listen_for_notifications, daemon=True).start()
         return response['success'], response.get('message', '')
 
     def get_users(self) -> list:
@@ -155,23 +156,20 @@ class MessengerClient:
                 try:
                     # Дешифруем только входящие сообщения
                     if msg['receiver'] == self.username:
+                        # Входящее - расшифровываем своим приватным ключом
                         text = self.encryption.decrypt_message(
                             msg['encrypted_message'],
                             msg['encrypted_key']
                         )
                     else:
-                        # Для исходящих используем свой публичный ключ
-                        text = "[Отправлено]"
-                        # Попробуем расшифровать через получателя
-                        try:
-                            text = self.encryption.decrypt_message(
-                                msg['encrypted_message'],
-                                msg['encrypted_key']
-                            )
-                        except:
-                            # Если не можем расшифровать свое же сообщение,
-                            # значит оно было зашифровано для получателя
-                            text = "[Зашифрованное сообщение]"
+                        # Исходящее - НЕ МОЖЕМ расшифровать (зашифровано для получателя)
+                        # Проверяем кэш отправленных сообщений
+                        cache_key = (msg['receiver'], msg['timestamp'])
+                        if cache_key in self.sent_messages_cache:
+                            text = self.sent_messages_cache[cache_key]
+                        else:
+                            # Если нет в кэше (старое сообщение или после перезапуска)
+                            text = "[Моё сообщение - зашифровано]"
 
                     decrypted_messages.append({
                         'sender': msg['sender'],
@@ -536,9 +534,14 @@ class MessengerClient:
             return
 
         # Отправляем
+        timestamp = datetime.now().isoformat()
         if self.send_message(self.current_chat, text):
+            # Сохраняем в кэш отправленных сообщений (чтобы потом видеть свои сообщения)
+            cache_key = (self.current_chat, timestamp)
+            self.sent_messages_cache[cache_key] = text
+
             # Отображаем своё сообщение
-            self.display_message(text, True, datetime.now().isoformat())
+            self.display_message(text, True, timestamp)
             self.message_input.delete(0, 'end')
 
             # Прокручиваем вниз
