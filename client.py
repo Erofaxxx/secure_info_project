@@ -52,8 +52,30 @@ class MessengerClient:
             messagebox.showerror("Ошибка", f"Не удалось подключиться к серверу:\n{e}")
             return False
 
-    def send_request(self, data: dict) -> dict:
-        """Отправка запроса на сервер и получение ответа"""
+    def reconnect(self) -> bool:
+        """Переподключение к серверу"""
+        try:
+            if self.socket:
+                try:
+                    self.socket.close()
+                except:
+                    pass
+
+            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.socket.connect((self.server_host, self.server_port))
+            print("✅ Переподключение успешно")
+            return True
+        except Exception as e:
+            print(f"❌ Не удалось переподключиться: {e}")
+            return False
+
+    def send_request(self, data: dict, retry_on_disconnect: bool = True) -> dict:
+        """Отправка запроса на сервер и получение ответа
+
+        Args:
+            data: Данные для отправки
+            retry_on_disconnect: Автоматически переподключаться при разрыве соединения
+        """
         try:
             # Отправляем с разделителем \n
             message = json.dumps(data) + '\n'
@@ -73,9 +95,22 @@ class MessengerClient:
             # Берем только первое сообщение (до \n)
             response_str = response_data.split(b'\n')[0].decode('utf-8')
             return json.loads(response_str)
+
+        except (BrokenPipeError, ConnectionError, ConnectionResetError) as e:
+            # Соединение разорвано - пробуем переподключиться
+            if retry_on_disconnect:
+                print(f"⚠️  Соединение разорвано ({e}), переподключаюсь...")
+                if self.reconnect():
+                    # Повторяем запрос БЕЗ повторного retry (чтобы не зациклиться)
+                    return self.send_request(data, retry_on_disconnect=False)
+
+            print(f"❌ Ошибка соединения: {e}")
+            return {'success': False, 'message': f'Connection error: {str(e)}'}
+
         except json.JSONDecodeError as e:
             print(f"Ошибка JSON: {e}")
             return {'success': False, 'message': f'JSON error: {str(e)}'}
+
         except Exception as e:
             print(f"Ошибка отправки запроса: {e}")
             return {'success': False, 'message': str(e)}
