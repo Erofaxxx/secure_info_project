@@ -404,13 +404,25 @@ class MessengerClient:
         self.chat_header.pack(fill="x")
         self.chat_header.pack_propagate(False)
 
+        # Левая часть - имя чата
         self.chat_title = ctk.CTkLabel(
             self.chat_header,
             text="Выберите чат",
             font=("Helvetica", 16, "bold"),
             anchor="w"
         )
-        self.chat_title.pack(padx=20, pady=15)
+        self.chat_title.pack(side="left", padx=20, pady=15)
+
+        # Правая часть - кнопка обновить
+        self.refresh_button = ctk.CTkButton(
+            self.chat_header,
+            text="🔄 Обновить",
+            width=100,
+            height=35,
+            font=("Helvetica", 12),
+            command=self.refresh_current_chat
+        )
+        self.refresh_button.pack(side="right", padx=20, pady=12)
 
         # Область сообщений
         self.message_frame = ctk.CTkScrollableFrame(
@@ -490,6 +502,11 @@ class MessengerClient:
         # Прокручиваем вниз
         self.root.update()
         self.message_frame._parent_canvas.yview_moveto(1.0)
+
+    def refresh_current_chat(self):
+        """Обновить текущий чат (загрузить новые сообщения)"""
+        if self.current_chat:
+            self.load_chat(self.current_chat)
 
     def display_message(self, text: str, is_mine: bool, timestamp: str = None):
         """Отображение сообщения в чате"""
