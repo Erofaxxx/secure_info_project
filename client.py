@@ -170,24 +170,37 @@ class MessengerClient:
         if response['success']:
             # Дешифруем сообщения
             decrypted_messages = []
-            for msg in response['messages']:
+            print(f"\n=== Обработка {len(response['messages'])} сообщений ===")
+            for idx, msg in enumerate(response['messages']):
                 try:
+                    print(f"\nСообщение {idx+1}:")
+                    print(f"  От: {msg['sender']} → Кому: {msg['receiver']}")
+                    print(f"  Timestamp: {msg['timestamp']}")
+                    print(f"  Я: {self.username}")
+
                     # Дешифруем только входящие сообщения
                     if msg['receiver'] == self.username:
+                        print(f"  → Тип: ВХОДЯЩЕЕ (расшифровываю)")
                         # Входящее - расшифровываем своим приватным ключом
                         text = self.encryption.decrypt_message(
                             msg['encrypted_message'],
                             msg['encrypted_key']
                         )
+                        print(f"  ✅ Расшифровано: {text[:50]}...")
                     else:
+                        print(f"  → Тип: ИСХОДЯЩЕЕ (проверяю кэш)")
                         # Исходящее - НЕ МОЖЕМ расшифровать (зашифровано для получателя)
                         # Проверяем кэш отправленных сообщений
                         cache_key = (msg['receiver'], msg['timestamp'])
+                        print(f"  Ключ кэша: {cache_key}")
+                        print(f"  Кэш содержит: {list(self.sent_messages_cache.keys())}")
                         if cache_key in self.sent_messages_cache:
                             text = self.sent_messages_cache[cache_key]
+                            print(f"  ✅ Найдено в кэше: {text[:50]}...")
                         else:
                             # Если нет в кэше (старое сообщение или после перезапуска)
                             text = "[Моё сообщение - зашифровано]"
+                            print(f"  ⚠️  НЕ найдено в кэше")
 
                     decrypted_messages.append({
                         'sender': msg['sender'],
@@ -195,7 +208,9 @@ class MessengerClient:
                         'timestamp': msg['timestamp']
                     })
                 except Exception as e:
-                    print(f"Ошибка дешифровки: {e}")
+                    print(f"  ❌ Ошибка дешифровки: {e}")
+                    import traceback
+                    traceback.print_exc()
                     decrypted_messages.append({
                         'sender': msg['sender'],
                         'text': '[Ошибка дешифровки]',
