@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.db
+*.sqlite
+*.sqlite3
+server_data/
+client_data/
+*.log
+venv/
+env/
+.env
+*.pem
+*.key
+private_keys/
