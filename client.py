@@ -96,7 +96,8 @@ class MessengerClient:
         data = {
             'command': 'LOGIN',
             'username': username,
-            'password': password
+            'password': password,
+            'public_key': self.encryption.get_public_key_string()  # Обновляем ключ при логине!
         }
         response = self.send_request(data)
         if response['success']:
@@ -131,13 +132,13 @@ class MessengerClient:
             return response['public_key']
         return None
 
-    def send_message(self, receiver: str, message: str) -> bool:
-        """Отправить зашифрованное сообщение"""
+    def send_message(self, receiver: str, message: str) -> tuple:
+        """Отправить зашифрованное сообщение, возвращает (success, timestamp)"""
         try:
             # Получаем публичный ключ получателя
             receiver_public_key = self.get_public_key(receiver)
             if not receiver_public_key:
-                return False
+                return False, None
 
             # Шифруем сообщение
             encrypted_message, encrypted_key = self.encryption.encrypt_message(
@@ -154,10 +155,19 @@ class MessengerClient:
                 'encrypted_key': encrypted_key
             }
             response = self.send_request(data)
-            return response['success']
+
+            if response['success']:
+                # Сохраняем в кэш с timestamp от сервера
+                timestamp = response.get('timestamp')
+                if timestamp:
+                    cache_key = (receiver, timestamp)
+                    self.sent_messages_cache[cache_key] = message
+                    print(f"  💾 Сохранено в кэш: {cache_key} = {message[:30]}...")
+                return True, timestamp
+            return False, None
         except Exception as e:
             print(f"Ошибка отправки сообщения: {e}")
-            return False
+            return False, None
 
     def get_messages(self, other_user: str) -> list:
         """Получить сообщения с другим пользователем"""
@@ -584,13 +594,13 @@ class MessengerClient:
             return
 
         # Отправляем
-        timestamp = datetime.now().isoformat()
-        if self.send_message(self.current_chat, text):
-            # Сохраняем в кэш отправленных сообщений (чтобы потом видеть свои сообщения)
-            cache_key = (self.current_chat, timestamp)
-            self.sent_messages_cache[cache_key] = text
+        success, timestamp = self.send_message(self.current_chat, text)
+        if success:
+            # Используем timestamp от сервера (если не получили - создаём локальный)
+            if not timestamp:
+                timestamp = datetime.now().isoformat()
 
-            # Отображаем своё сообщение
+            # Кэш уже обновлён в send_message(), просто отображаем сообщение
             self.display_message(text, True, timestamp)
             self.message_input.delete(0, 'end')
 

@@ -102,7 +102,7 @@ class MessengerServer:
             logger.error(f"Ошибка регистрации: {e}")
             return False, f"Ошибка: {str(e)}"
 
-    def login_user(self, username: str, password: str) -> tuple:
+    def login_user(self, username: str, password: str, public_key: str = None) -> tuple:
         """Авторизация пользователя"""
         try:
             conn = sqlite3.connect('messenger.db')
@@ -110,15 +110,26 @@ class MessengerServer:
 
             cursor.execute('SELECT password_hash FROM users WHERE username = ?', (username,))
             result = cursor.fetchone()
-            conn.close()
 
             if not result:
+                conn.close()
                 return False, "Пользователь не найден"
 
             if self.verify_password(password, result[0]):
+                # Обновляем публичный ключ если предоставлен (при логине с нового устройства)
+                if public_key:
+                    cursor.execute(
+                        'UPDATE users SET public_key = ? WHERE username = ?',
+                        (public_key, username)
+                    )
+                    conn.commit()
+                    logger.info(f"Обновлен публичный ключ для {username}")
+
+                conn.close()
                 logger.info(f"Пользователь {username} вошел в систему")
                 return True, "Вход выполнен"
             else:
+                conn.close()
                 return False, "Неверный пароль"
 
         except Exception as e:
@@ -155,8 +166,8 @@ class MessengerServer:
             logger.error(f"Ошибка получения ключа: {e}")
             return None
 
-    def save_message(self, sender: str, receiver: str, encrypted_message: str, encrypted_key: str) -> bool:
-        """Сохранить зашифрованное сообщение"""
+    def save_message(self, sender: str, receiver: str, encrypted_message: str, encrypted_key: str) -> tuple:
+        """Сохранить зашифрованное сообщение, возвращает (success, timestamp)"""
         try:
             conn = sqlite3.connect('messenger.db')
             cursor = conn.cursor()
@@ -165,14 +176,20 @@ class MessengerServer:
                 'INSERT INTO messages (sender, receiver, encrypted_message, encrypted_key) VALUES (?, ?, ?, ?)',
                 (sender, receiver, encrypted_message, encrypted_key)
             )
+
+            # Получаем timestamp только что вставленного сообщения
+            message_id = cursor.lastrowid
+            cursor.execute('SELECT timestamp FROM messages WHERE id = ?', (message_id,))
+            timestamp = cursor.fetchone()[0]
+
             conn.commit()
             conn.close()
 
-            logger.info(f"Сообщение от {sender} к {receiver} сохранено")
-            return True
+            logger.info(f"Сообщение от {sender} к {receiver} сохранено с timestamp {timestamp}")
+            return True, timestamp
         except Exception as e:
             logger.error(f"Ошибка сохранения сообщения: {e}")
-            return False
+            return False, None
 
     def get_messages(self, user1: str, user2: str) -> list:
         """Получить все сообщения между двумя пользователями"""
@@ -244,7 +261,8 @@ class MessengerServer:
                     elif command == 'LOGIN':
                         success, message = self.login_user(
                             request['username'],
-                            request['password']
+                            request['password'],
+                            request.get('public_key')  # Обновляем ключ при логине
                         )
                         if success:
                             current_user = request['username']
@@ -264,13 +282,13 @@ class MessengerServer:
                         }
 
                     elif command == 'SEND_MESSAGE':
-                        success = self.save_message(
+                        success, timestamp = self.save_message(
                             request['sender'],
                             request['receiver'],
                             request['encrypted_message'],
                             request['encrypted_key']
                         )
-                        response = {'success': success}
+                        response = {'success': success, 'timestamp': timestamp}
 
                         # Уведомить получателя если он онлайн (отключено - конфликт с сокетом)
                         # with self.clients_lock:
