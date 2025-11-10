@@ -55,9 +55,27 @@ class MessengerClient:
     def send_request(self, data: dict) -> dict:
         """Отправка запроса на сервер и получение ответа"""
         try:
-            self.socket.send(json.dumps(data).encode('utf-8'))
-            response = self.socket.recv(8192).decode('utf-8')
-            return json.loads(response)
+            # Отправляем с разделителем \n
+            message = json.dumps(data) + '\n'
+            self.socket.send(message.encode('utf-8'))
+
+            # Читаем до разделителя \n
+            response_data = b''
+            while True:
+                chunk = self.socket.recv(1024)
+                if not chunk:
+                    raise ConnectionError("Соединение закрыто сервером")
+                response_data += chunk
+                if b'\n' in response_data:
+                    # Нашли конец сообщения
+                    break
+
+            # Берем только первое сообщение (до \n)
+            response_str = response_data.split(b'\n')[0].decode('utf-8')
+            return json.loads(response_str)
+        except json.JSONDecodeError as e:
+            print(f"Ошибка JSON: {e}")
+            return {'success': False, 'message': f'JSON error: {str(e)}'}
         except Exception as e:
             print(f"Ошибка отправки запроса: {e}")
             return {'success': False, 'message': str(e)}

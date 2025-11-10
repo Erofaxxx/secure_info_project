@@ -207,79 +207,93 @@ class MessengerServer:
         """Обработка клиентского подключения"""
         logger.info(f"Новое подключение от {address}")
         current_user = None
+        buffer = b''  # Буфер для неполных сообщений
 
         try:
             while True:
                 # Получение данных от клиента
-                data = client_socket.recv(4096).decode('utf-8')
-                if not data:
+                chunk = client_socket.recv(4096)
+                if not chunk:
                     break
 
-                request = json.loads(data)
-                command = request.get('command')
+                buffer += chunk
 
-                response = {}
+                # Обрабатываем все полные сообщения (разделенные \n)
+                while b'\n' in buffer:
+                    # Извлекаем первое сообщение
+                    message, buffer = buffer.split(b'\n', 1)
 
-                if command == 'REGISTER':
-                    success, message = self.register_user(
-                        request['username'],
-                        request['password'],
-                        request['public_key']
-                    )
-                    response = {'success': success, 'message': message}
+                    try:
+                        data = message.decode('utf-8')
+                        request = json.loads(data)
+                        command = request.get('command')
+                    except (UnicodeDecodeError, json.JSONDecodeError) as e:
+                        logger.error(f"Ошибка парсинга запроса: {e}")
+                        continue
 
-                elif command == 'LOGIN':
-                    success, message = self.login_user(
-                        request['username'],
-                        request['password']
-                    )
-                    if success:
-                        current_user = request['username']
-                        with self.clients_lock:
-                            self.clients[current_user] = client_socket
-                    response = {'success': success, 'message': message}
+                    response = {}
 
-                elif command == 'GET_USERS':
-                    users = self.get_users(request['username'])
-                    response = {'success': True, 'users': users}
+                    if command == 'REGISTER':
+                        success, message = self.register_user(
+                            request['username'],
+                            request['password'],
+                            request['public_key']
+                        )
+                        response = {'success': success, 'message': message}
 
-                elif command == 'GET_PUBLIC_KEY':
-                    public_key = self.get_public_key(request['username'])
-                    response = {
-                        'success': public_key is not None,
-                        'public_key': public_key
-                    }
+                    elif command == 'LOGIN':
+                        success, message = self.login_user(
+                            request['username'],
+                            request['password']
+                        )
+                        if success:
+                            current_user = request['username']
+                            with self.clients_lock:
+                                self.clients[current_user] = client_socket
+                        response = {'success': success, 'message': message}
 
-                elif command == 'SEND_MESSAGE':
-                    success = self.save_message(
-                        request['sender'],
-                        request['receiver'],
-                        request['encrypted_message'],
-                        request['encrypted_key']
-                    )
-                    response = {'success': success}
+                    elif command == 'GET_USERS':
+                        users = self.get_users(request['username'])
+                        response = {'success': True, 'users': users}
 
-                    # Уведомить получателя если он онлайн
-                    with self.clients_lock:
-                        if request['receiver'] in self.clients:
-                            try:
-                                notification = json.dumps({
-                                    'type': 'NEW_MESSAGE',
-                                    'sender': request['sender']
-                                })
-                                self.clients[request['receiver']].send(notification.encode('utf-8'))
-                            except:
-                                pass
+                    elif command == 'GET_PUBLIC_KEY':
+                        public_key = self.get_public_key(request['username'])
+                        response = {
+                            'success': public_key is not None,
+                            'public_key': public_key
+                        }
 
-                elif command == 'GET_MESSAGES':
-                    messages = self.get_messages(
-                        request['user1'],
-                        request['user2']
-                    )
-                    response = {'success': True, 'messages': messages}
+                    elif command == 'SEND_MESSAGE':
+                        success = self.save_message(
+                            request['sender'],
+                            request['receiver'],
+                            request['encrypted_message'],
+                            request['encrypted_key']
+                        )
+                        response = {'success': success}
 
-                # Отправка ответа
-                client_socket.send(json.dumps(response).encode('utf-8'))
+                        # Уведомить получателя если он онлайн (отключено - конфликт с сокетом)
+                        # with self.clients_lock:
+                        #     if request['receiver'] in self.clients:
+                        #         try:
+                        #             notification = json.dumps({
+                        #                 'type': 'NEW_MESSAGE',
+                        #                 'sender': request['sender']
+                        #             }) + '\n'
+                        #             self.clients[request['receiver']].send(notification.encode('utf-8'))
+                        #         except:
+                        #             pass
+
+                    elif command == 'GET_MESSAGES':
+                        messages = self.get_messages(
+                            request['user1'],
+                            request['user2']
+                        )
+                        response = {'success': True, 'messages': messages}
+
+                    # Отправка ответа с разделителем \n
+                    response_data = json.dumps(response) + '\n'
+                    client_socket.send(response_data.encode('utf-8'))
 
         except Exception as e:
             logger.error(f"Ошибка обработки клиента {address}: {e}")
