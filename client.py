@@ -242,54 +242,86 @@ class MessengerClient:
         }
         response = self.send_request(data)
         if response['success']:
+            # Группируем сообщения по timestamp для обработки копий
+            messages_by_timestamp = {}
+            for msg in response['messages']:
+                ts = msg['timestamp']
+                if ts not in messages_by_timestamp:
+                    messages_by_timestamp[ts] = []
+                messages_by_timestamp[ts].append(msg)
+
             # Дешифруем сообщения
             decrypted_messages = []
             print(f"\n=== Обработка {len(response['messages'])} сообщений ===")
-            for idx, msg in enumerate(response['messages']):
-                try:
-                    print(f"\nСообщение {idx+1}:")
-                    print(f"  От: {msg['sender']} → Кому: {msg['receiver']}")
-                    print(f"  Timestamp: {msg['timestamp']}")
-                    print(f"  Я: {self.username}")
 
-                    # Дешифруем только входящие сообщения
-                    if msg['receiver'] == self.username:
-                        print(f"  → Тип: ВХОДЯЩЕЕ (расшифровываю)")
-                        # Входящее - расшифровываем своим приватным ключом
-                        text = self.encryption.decrypt_message(
-                            msg['encrypted_message'],
-                            msg['encrypted_key']
-                        )
-                        print(f"  ✅ Расшифровано: {text[:50]}...")
-                    else:
-                        print(f"  → Тип: ИСХОДЯЩЕЕ (проверяю кэш)")
-                        # Исходящее - НЕ МОЖЕМ расшифровать (зашифровано для получателя)
-                        # Проверяем кэш отправленных сообщений
-                        cache_key = (msg['receiver'], msg['timestamp'])
-                        print(f"  Ключ кэша: {cache_key}")
-                        print(f"  Кэш содержит: {list(self.sent_messages_cache.keys())}")
-                        if cache_key in self.sent_messages_cache:
-                            text = self.sent_messages_cache[cache_key]
-                            print(f"  ✅ Найдено в кэше: {text[:50]}...")
+            # Обрабатываем по порядку timestamp
+            for ts in sorted(messages_by_timestamp.keys()):
+                msgs_at_time = messages_by_timestamp[ts]
+
+                # Ищем основное сообщение (sender != receiver)
+                main_msg = None
+                copy_for_me = None
+
+                for msg in msgs_at_time:
+                    if msg['sender'] != msg['receiver']:
+                        # Основное сообщение
+                        main_msg = msg
+                    elif msg['sender'] == self.username and msg['receiver'] == self.username:
+                        # Копия для себя
+                        copy_for_me = msg
+
+                # Показываем только основное сообщение
+                if main_msg:
+                    try:
+                        print(f"\nСообщение: {main_msg['sender']} → {main_msg['receiver']}")
+                        print(f"  Timestamp: {ts}")
+
+                        # Определяем тип сообщения
+                        is_outgoing = (main_msg['sender'] == self.username)
+
+                        if is_outgoing:
+                            print(f"  → Тип: ИСХОДЯЩЕЕ")
+                            # Пытаемся расшифровать копию для себя
+                            if copy_for_me:
+                                print(f"  → Расшифровываю копию для себя")
+                                text = self.encryption.decrypt_message(
+                                    copy_for_me['encrypted_message'],
+                                    copy_for_me['encrypted_key']
+                                )
+                                print(f"  ✅ Расшифровано: {text[:50]}...")
+                            else:
+                                # Нет копии - проверяем кэш
+                                cache_key = (main_msg['receiver'], ts)
+                                if cache_key in self.sent_messages_cache:
+                                    text = self.sent_messages_cache[cache_key]
+                                    print(f"  ✅ Найдено в кэше: {text[:50]}...")
+                                else:
+                                    text = "[Моё старое сообщение]"
+                                    print(f"  ⚠️  Нет копии и не в кэше")
                         else:
-                            # Если нет в кэше (старое сообщение или после перезапуска)
-                            text = "[Моё сообщение - зашифровано]"
-                            print(f"  ⚠️  НЕ найдено в кэше")
+                            print(f"  → Тип: ВХОДЯЩЕЕ")
+                            # Входящее - расшифровываем своим приватным ключом
+                            text = self.encryption.decrypt_message(
+                                main_msg['encrypted_message'],
+                                main_msg['encrypted_key']
+                            )
+                            print(f"  ✅ Расшифровано: {text[:50]}...")
 
-                    decrypted_messages.append({
-                        'sender': msg['sender'],
-                        'text': text,
-                        'timestamp': msg['timestamp']
-                    })
-                except Exception as e:
-                    print(f"  ❌ Ошибка дешифровки: {e}")
-                    import traceback
-                    traceback.print_exc()
-                    decrypted_messages.append({
-                        'sender': msg['sender'],
-                        'text': '[Ошибка дешифровки]',
-                        'timestamp': msg['timestamp']
-                    })
+                        decrypted_messages.append({
+                            'sender': main_msg['sender'],
+                            'text': text,
+                            'timestamp': ts
+                        })
+                    except Exception as e:
+                        print(f"  ❌ Ошибка дешифровки: {e}")
+                        import traceback
+                        traceback.print_exc()
+                        decrypted_messages.append({
+                            'sender': main_msg['sender'],
+                            'text': '[Ошибка дешифровки]',
+                            'timestamp': ts
+                        })
+
             return decrypted_messages
         return []
 
