@@ -192,17 +192,37 @@ class MessengerServer:
             return False, None
 
     def get_messages(self, user1: str, user2: str) -> list:
-        """Получить все сообщения между двумя пользователями"""
+        """Получить все сообщения между двумя пользователями
+
+        Включает:
+        - Сообщения от user1 к user2
+        - Сообщения от user2 к user1
+        - Копии для себя (sender=receiver) которые относятся к этому чату
+        """
         try:
             conn = sqlite3.connect('messenger.db')
             cursor = conn.cursor()
 
+            # Получаем сообщения между пользователями + копии для себя
+            # Копия считается частью чата, если есть сообщение с тем же timestamp между user1 и user2
             cursor.execute('''
-                SELECT sender, receiver, encrypted_message, encrypted_key, timestamp
-                FROM messages
-                WHERE (sender = ? AND receiver = ?) OR (sender = ? AND receiver = ?)
-                ORDER BY timestamp ASC
-            ''', (user1, user2, user2, user1))
+                SELECT DISTINCT m.sender, m.receiver, m.encrypted_message, m.encrypted_key, m.timestamp
+                FROM messages m
+                WHERE
+                    (m.sender = ? AND m.receiver = ?) OR
+                    (m.sender = ? AND m.receiver = ?) OR
+                    (m.sender = ? AND m.receiver = ? AND EXISTS (
+                        SELECT 1 FROM messages m2
+                        WHERE m2.timestamp = m.timestamp AND m2.sender = ? AND m2.receiver = ?
+                    )) OR
+                    (m.sender = ? AND m.receiver = ? AND EXISTS (
+                        SELECT 1 FROM messages m2
+                        WHERE m2.timestamp = m.timestamp AND m2.sender = ? AND m2.receiver = ?
+                    ))
+                ORDER BY m.timestamp ASC
+            ''', (user1, user2, user2, user1,
+                  user1, user1, user1, user2,
+                  user2, user2, user2, user1))
 
             messages = []
             for row in cursor.fetchall():
@@ -282,12 +302,23 @@ class MessengerServer:
                         }
 
                     elif command == 'SEND_MESSAGE':
+                        # Сохраняем сообщение для получателя
                         success, timestamp = self.save_message(
                             request['sender'],
                             request['receiver'],
                             request['encrypted_message'],
                             request['encrypted_key']
                         )
+
+                        # Сохраняем копию для отправителя (если есть)
+                        if success and 'encrypted_message_for_sender' in request:
+                            self.save_message(
+                                request['sender'],
+                                request['sender'],  # receiver = sender (копия для себя)
+                                request['encrypted_message_for_sender'],
+                                request['encrypted_key_for_sender']
+                            )
+
                         response = {'success': success, 'timestamp': timestamp}
 
                         # Уведомить получателя если он онлайн (отключено - конфликт с сокетом)

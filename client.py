@@ -194,10 +194,17 @@ class MessengerClient:
             if not receiver_public_key:
                 return False, None
 
-            # Шифруем сообщение
+            # Шифруем сообщение для получателя
             encrypted_message, encrypted_key = self.encryption.encrypt_message(
                 message,
                 receiver_public_key
+            )
+
+            # Шифруем сообщение для себя (чтобы видеть после перезапуска)
+            my_public_key = self.encryption.get_public_key_string()
+            encrypted_message_for_me, encrypted_key_for_me = self.encryption.encrypt_message(
+                message,
+                my_public_key
             )
 
             # Отправляем на сервер
@@ -206,7 +213,10 @@ class MessengerClient:
                 'sender': self.username,
                 'receiver': receiver,
                 'encrypted_message': encrypted_message,
-                'encrypted_key': encrypted_key
+                'encrypted_key': encrypted_key,
+                # Добавляем зашифрованную копию для себя
+                'encrypted_message_for_sender': encrypted_message_for_me,
+                'encrypted_key_for_sender': encrypted_key_for_me
             }
             response = self.send_request(data)
 
