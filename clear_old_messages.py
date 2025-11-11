@@ -8,7 +8,7 @@ import sqlite3
 import sys
 from datetime import datetime
 
-def clear_old_messages(db_path='server_data.db'):
+def clear_old_messages(db_path='messenger.db'):
     """Очищает все сообщения из базы данных"""
     try:
         conn = sqlite3.connect(db_path)
@@ -54,7 +54,7 @@ def clear_old_messages(db_path='server_data.db'):
         return False
 
 if __name__ == '__main__':
-    db_path = sys.argv[1] if len(sys.argv) > 1 else 'server_data.db'
+    db_path = sys.argv[1] if len(sys.argv) > 1 else 'messenger.db'
 
     print("=" * 50)
     print("ОЧИСТКА СТАРЫХ СООБЩЕНИЙ")
