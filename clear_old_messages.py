@@ -14,12 +14,26 @@ def clear_old_messages(db_path='server_data.db'):
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
 
+        # Проверяем существует ли таблица messages
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='messages'"
+        )
+        table_exists = cursor.fetchone() is not None
+
+        if not table_exists:
+            print("✅ Таблица messages не существует")
+            print("✅ База данных чистая, старых сообщений нет")
+            print("ℹ️  Таблица будет создана при первом запуске сервера")
+            conn.close()
+            return True
+
         # Подсчитываем сколько сообщений будет удалено
         cursor.execute('SELECT COUNT(*) FROM messages')
         count = cursor.fetchone()[0]
 
         if count == 0:
             print("✅ База данных уже пустая, сообщений нет")
+            conn.close()
             return True
 
         print(f"⚠️  Найдено {count} сообщений")
