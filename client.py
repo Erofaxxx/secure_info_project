@@ -25,7 +25,7 @@ class MessengerClient:
         self.socket = None
         self.username = None
         self.encryption = E2EEncryption()
-        self.encryption.generate_keys()
+        # НЕ генерируем ключи сразу - они будут загружены/сгенерированы при входе
         self.current_chat = None
         self.public_keys_cache = {}  # username: public_key
 
@@ -68,6 +68,25 @@ class MessengerClient:
         except Exception as e:
             print(f"❌ Не удалось переподключиться: {e}")
             return False
+
+    def initialize_keys(self, username: str) -> bool:
+        """Инициализация ключей шифрования
+
+        Загружает существующие ключи или генерирует новые
+
+        Returns:
+            True если ключи были сгенерированы (первый вход)
+            False если ключи были загружены из файла
+        """
+        # Пытаемся загрузить существующие ключи
+        if self.encryption.load_keys_from_file(username):
+            print(f"✅ Используются существующие ключи для {username}")
+            return False
+        else:
+            # Генерируем новые ключи
+            self.encryption.generate_keys()
+            print(f"🔑 Сгенерированы новые ключи для {username}")
+            return True
 
     def send_request(self, data: dict, retry_on_disconnect: bool = True) -> dict:
         """Отправка запроса на сервер и получение ответа
@@ -393,8 +412,15 @@ class MessengerClient:
             if not self.connect_to_server():
                 return
 
+        # Инициализируем ключи (загружаем или генерируем)
+        keys_generated = self.initialize_keys(username)
+
         success, message = self.login(username, password)
         if success:
+            # Сохраняем ключи если они были только что сгенерированы
+            if keys_generated:
+                self.encryption.save_keys_to_file(username)
+
             self.login_frame.destroy()
             self.show_main_screen()
         else:
@@ -417,8 +443,13 @@ class MessengerClient:
             if not self.connect_to_server():
                 return
 
+        # Генерируем новые ключи для регистрации
+        self.encryption.generate_keys()
+
         success, message = self.register(username, password)
         if success:
+            # Сохраняем ключи после успешной регистрации
+            self.encryption.save_keys_to_file(username)
             messagebox.showinfo("Успех", "Регистрация успешна! Теперь войдите в систему.")
         else:
             messagebox.showerror("Ошибка", message)

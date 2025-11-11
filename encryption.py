@@ -7,6 +7,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.fernet import Fernet
 import base64
+import os
 
 
 class E2EEncryption:
@@ -36,6 +37,59 @@ class E2EEncryption:
     def load_public_key_from_string(self, key_string: str):
         """Загрузить публичный ключ из строки"""
         return serialization.load_pem_public_key(key_string.encode('utf-8'))
+
+    def save_keys_to_file(self, username: str):
+        """Сохранить приватный ключ в файл для постоянного хранения"""
+        if not self.private_key:
+            raise ValueError("Ключи не сгенерированы!")
+
+        # Создаем директорию для ключей если её нет
+        keys_dir = os.path.expanduser('~/.secure_messenger')
+        os.makedirs(keys_dir, exist_ok=True)
+
+        # Путь к файлу ключа
+        key_file = os.path.join(keys_dir, f'{username}_private.pem')
+
+        # Сериализуем приватный ключ в PEM формат
+        pem = self.private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption()  # Без пароля для простоты
+        )
+
+        # Сохраняем в файл
+        with open(key_file, 'wb') as f:
+            f.write(pem)
+
+        # Устанавливаем права доступа только для владельца
+        os.chmod(key_file, 0o600)
+
+        print(f"🔑 Ключи сохранены в {key_file}")
+
+    def load_keys_from_file(self, username: str) -> bool:
+        """Загрузить приватный ключ из файла
+
+        Returns:
+            True если ключи загружены, False если файла нет
+        """
+        keys_dir = os.path.expanduser('~/.secure_messenger')
+        key_file = os.path.join(keys_dir, f'{username}_private.pem')
+
+        if not os.path.exists(key_file):
+            return False
+
+        # Загружаем приватный ключ
+        with open(key_file, 'rb') as f:
+            pem_data = f.read()
+
+        self.private_key = serialization.load_pem_private_key(
+            pem_data,
+            password=None  # Нет пароля
+        )
+        self.public_key = self.private_key.public_key()
+
+        print(f"🔑 Ключи загружены из {key_file}")
+        return True
 
     def encrypt_message(self, message: str, recipient_public_key_string: str) -> tuple:
         """
